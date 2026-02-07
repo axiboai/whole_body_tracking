@@ -13,10 +13,13 @@ class MyOnPolicyRunner(OnPolicyRunner):
     def save(self, path: str, infos=None):
         """Save the model and training information."""
         super().save(path, infos)
-        if self.logger_type in ["wandb"]:
+        # logger_type exists in rsl_rl <= 2.3.x but was removed in newer versions
+        if getattr(self, "logger_type", None) in ["wandb"]:
             policy_path = path.split("model")[0]
             filename = policy_path.split("/")[-2] + ".onnx"
-            export_policy_as_onnx(self.alg.policy, normalizer=self.obs_normalizer, path=policy_path, filename=filename)
+            # obs_normalizer exists in rsl_rl <= 2.3.x but was removed in newer versions
+            obs_normalizer = getattr(self, "obs_normalizer", None)
+            export_policy_as_onnx(self.alg.policy, normalizer=obs_normalizer, path=policy_path, filename=filename)
             attach_onnx_metadata(self.env.unwrapped, wandb.run.name, path=policy_path, filename=filename)
             wandb.save(policy_path + filename, base_path=os.path.dirname(policy_path))
 
@@ -31,11 +34,14 @@ class MotionOnPolicyRunner(OnPolicyRunner):
     def save(self, path: str, infos=None):
         """Save the model and training information."""
         super().save(path, infos)
-        if self.logger_type in ["wandb"]:
+        # logger_type exists in rsl_rl <= 2.3.x but was removed in newer versions
+        if getattr(self, "logger_type", None) in ["wandb"]:
             policy_path = path.split("model")[0]
             filename = policy_path.split("/")[-2] + ".onnx"
+            # obs_normalizer exists in rsl_rl <= 2.3.x but was removed in newer versions
+            obs_normalizer = getattr(self, "obs_normalizer", None)
             export_motion_policy_as_onnx(
-                self.env.unwrapped, self.alg.policy, normalizer=self.obs_normalizer, path=policy_path, filename=filename
+                self.env.unwrapped, self.alg.policy, normalizer=obs_normalizer, path=policy_path, filename=filename
             )
             attach_onnx_metadata(self.env.unwrapped, wandb.run.name, path=policy_path, filename=filename)
             wandb.save(policy_path + filename, base_path=os.path.dirname(policy_path))
