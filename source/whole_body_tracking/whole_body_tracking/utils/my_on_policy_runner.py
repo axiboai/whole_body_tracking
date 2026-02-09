@@ -12,6 +12,9 @@ from whole_body_tracking.utils.exporter import attach_onnx_metadata, export_moti
 class MyOnPolicyRunner(OnPolicyRunner):
     def save(self, path: str, infos=None):
         """Save the model and training information."""
+        # Ensure logger_type exists (some rsl_rl versions reference it in save())
+        if not hasattr(self, "logger_type"):
+            self.logger_type = "tensorboard"
         super().save(path, infos)
         # logger_type exists in rsl_rl <= 2.3.x but was removed in newer versions
         if getattr(self, "logger_type", None) in ["wandb"]:
@@ -30,9 +33,15 @@ class MotionOnPolicyRunner(OnPolicyRunner):
     ):
         super().__init__(env, train_cfg, log_dir, device)
         self.registry_name = registry_name
+        # Ensure logger_type exists (some rsl_rl versions reference it in save())
+        if not hasattr(self, "logger_type"):
+            self.logger_type = "tensorboard"
 
     def save(self, path: str, infos=None):
         """Save the model and training information."""
+        # Defensive: also set here in case __init__ was bypassed
+        if not hasattr(self, "logger_type"):
+            self.logger_type = "tensorboard"
         super().save(path, infos)
         # logger_type exists in rsl_rl <= 2.3.x but was removed in newer versions
         if getattr(self, "logger_type", None) in ["wandb"]:
