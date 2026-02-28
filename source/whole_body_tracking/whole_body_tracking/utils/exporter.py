@@ -85,7 +85,14 @@ def list_to_csv_str(arr, *, decimals: int = 3, delimiter: str = ",") -> str:
     )
 
 
-def attach_onnx_metadata(env: ManagerBasedRLEnv, run_path: str, path: str, filename="policy.onnx") -> None:
+def attach_onnx_metadata(
+    env: ManagerBasedRLEnv,
+    run_path: str,
+    path: str,
+    filename="policy.onnx",
+    joint_stiffness_override: list[float] | None = None,
+    joint_damping_override: list[float] | None = None,
+) -> None:
     onnx_path = os.path.join(path, filename)
 
     observation_names = env.observation_manager.active_terms["policy"]
@@ -102,8 +109,16 @@ def attach_onnx_metadata(env: ManagerBasedRLEnv, run_path: str, path: str, filen
     metadata = {
         "run_path": run_path,
         "joint_names": env.scene["robot"].data.joint_names,
-        "joint_stiffness": env.scene["robot"].data.joint_stiffness[0].cpu().tolist(),
-        "joint_damping": env.scene["robot"].data.joint_damping[0].cpu().tolist(),
+        "joint_stiffness": (
+            joint_stiffness_override
+            if joint_stiffness_override is not None
+            else env.scene["robot"].data.joint_stiffness[0].cpu().tolist()
+        ),
+        "joint_damping": (
+            joint_damping_override
+            if joint_damping_override is not None
+            else env.scene["robot"].data.joint_damping[0].cpu().tolist()
+        ),
         "default_joint_pos": env.scene["robot"].data.default_joint_pos_nominal.cpu().tolist(),
         "command_names": env.command_manager.active_terms,
         "observation_names": observation_names,
