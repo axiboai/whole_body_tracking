@@ -68,7 +68,13 @@ class MotionOnPolicyRunner(OnPolicyRunner):
                 self.registry_name = None
 
     def _maybe_export_in_progress_onnx(self, checkpoint_path: str):
-        """Export ONNX snapshots for intermediate checkpoints."""
+        """Export ONNX snapshots for intermediate checkpoints.
+
+        SAFETY: This method must never mutate training state.  The ONNX
+        exporter already deep-copies the actor and normalizer, so we do NOT
+        call policy.eval() or touch the simulation.  Everything runs under
+        torch.no_grad() as an extra safeguard.
+        """
         if not bool(getattr(self, "in_progress_export_enabled", False)):
             return
 
@@ -95,52 +101,54 @@ class MotionOnPolicyRunner(OnPolicyRunner):
         filename = f"{base_name}_{obs_suffix}_iter{iteration}_in_progress.onnx"
 
         try:
-            # Build nominal gains from robot config for metadata only (no sim state mutation).
-            robot = self.env.unwrapped.scene["robot"]
-            robot_cfg = self.env.unwrapped.scene.cfg.robot
-            joint_names = robot.data.joint_names
-            nominal_stiffness = [0.0 for _ in joint_names]
-            nominal_damping = [0.0 for _ in joint_names]
-            for actuator_cfg in robot_cfg.actuators.values():
-                for i, joint_name in enumerate(joint_names):
-                    for pattern in actuator_cfg.joint_names_expr:
-                        if re.match(pattern, joint_name):
-                            if isinstance(actuator_cfg.stiffness, dict):
-                                for k_pattern, k_value in actuator_cfg.stiffness.items():
-                                    if re.match(k_pattern, joint_name):
-                                        nominal_stiffness[i] = float(k_value)
-                                        break
-                            else:
-                                nominal_stiffness[i] = float(actuator_cfg.stiffness)
+            import torch
 
-                            if isinstance(actuator_cfg.damping, dict):
-                                for d_pattern, d_value in actuator_cfg.damping.items():
-                                    if re.match(d_pattern, joint_name):
-                                        nominal_damping[i] = float(d_value)
-                                        break
-                            else:
-                                nominal_damping[i] = float(actuator_cfg.damping)
-                            break
+            with torch.no_grad():
+                # Build nominal gains from robot config for metadata only.
+                robot = self.env.unwrapped.scene["robot"]
+                robot_cfg = self.env.unwrapped.scene.cfg.robot
+                joint_names = robot.data.joint_names
+                nominal_stiffness = [0.0 for _ in joint_names]
+                nominal_damping = [0.0 for _ in joint_names]
+                for actuator_cfg in robot_cfg.actuators.values():
+                    for i, joint_name in enumerate(joint_names):
+                        for pattern in actuator_cfg.joint_names_expr:
+                            if re.match(pattern, joint_name):
+                                if isinstance(actuator_cfg.stiffness, dict):
+                                    for k_pattern, k_value in actuator_cfg.stiffness.items():
+                                        if re.match(k_pattern, joint_name):
+                                            nominal_stiffness[i] = float(k_value)
+                                            break
+                                else:
+                                    nominal_stiffness[i] = float(actuator_cfg.stiffness)
 
-            self.alg.policy.eval()
-            obs_normalizer = getattr(self, "obs_normalizer", None)
-            if obs_normalizer is not None and hasattr(obs_normalizer, "eval"):
-                obs_normalizer.eval()
-            export_motion_policy_as_onnx(
-                self.env.unwrapped,
-                self.alg.policy,
-                export_dir,
-                normalizer=obs_normalizer,
-                filename=filename,
-            )
-            attach_onnx_metadata(
-                self.env.unwrapped,
-                f"local:{checkpoint_path}",
-                path=export_dir,
-                filename=filename,
-                joint_stiffness_override=nominal_stiffness,
-                joint_damping_override=nominal_damping,
-            )
+                                if isinstance(actuator_cfg.damping, dict):
+                                    for d_pattern, d_value in actuator_cfg.damping.items():
+                                        if re.match(d_pattern, joint_name):
+                                            nominal_damping[i] = float(d_value)
+                                            break
+                                else:
+                                    nominal_damping[i] = float(actuator_cfg.damping)
+                                break
+
+                # The exporter deep-copies the actor and normalizer internally,
+                # so we pass the live policy without switching to eval mode.
+                obs_normalizer = getattr(self, "obs_normalizer", None)
+                export_motion_policy_as_onnx(
+                    self.env.unwrapped,
+                    self.alg.policy,
+                    export_dir,
+                    normalizer=obs_normalizer,
+                    filename=filename,
+                )
+                attach_onnx_metadata(
+                    self.env.unwrapped,
+                    f"local:{checkpoint_path}",
+                    path=export_dir,
+                    filename=filename,
+                    joint_stiffness_override=nominal_stiffness,
+                    joint_damping_override=nominal_damping,
+                )
             print(f"[INFO]: ✓ Exported in-progress ONNX: {filename}")
         except Exception as exc:
             print(f"[WARNING]: In-progress ONNX export failed for {checkpoint_name}: {exc}")
